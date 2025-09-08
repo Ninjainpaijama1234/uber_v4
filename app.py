@@ -1,6 +1,7 @@
 # app.py
 # Uber NCR 2024 — Analytics & Decision Lab (Lean, Py3.13-friendly)
-# Optimized for reduced dataset; hard-coded file path; no sklearn/prophet/xgboost/lightgbm/shap.
+# Hard-coded dataset basename: ncr_ride_bookingsv350k  (CSV in repo)
+# No sklearn/prophet/xgboost/lightgbm/shap. GLM/OLS/ARIMA/KMeans via statsmodels/NumPy.
 
 from __future__ import annotations
 
@@ -26,8 +27,8 @@ st.set_page_config(
 RANDOM_STATE = 42
 np.random.seed(RANDOM_STATE)
 
-# --- Hard-coded data file ---
-DATA_FILE = "/mnt/data/ncr_ride_bookingsv350k.csv"  # <— update here if your path differs
+# --- Hard-coded dataset base name (no extension required) ---
+DATA_BASENAME = "ncr_ride_bookingsv350k"
 
 # Schema (strict headers)
 SCHEMA = [
@@ -79,7 +80,6 @@ def canonical_status(row: pd.Series) -> str:
     cust_cxl = pd.to_numeric(pd.Series([row.get("Cancelled Rides by Customer", 0)]), errors="coerce").iloc[0] or 0
     drv_cxl  = pd.to_numeric(pd.Series([row.get("Cancelled Rides by Driver", 0)]), errors="coerce").iloc[0] or 0
     inc      = pd.to_numeric(pd.Series([row.get("Incomplete Rides", 0)]), errors="coerce").iloc[0] or 0
-
     low = raw.lower()
     if low == "completed": return "Completed"
     if "no driver found" in low: return "No Driver Found"
@@ -94,23 +94,60 @@ def revenue_mask(status: pd.Series) -> pd.Series:
 # ==============================
 # Data I/O & Processing
 # ==============================
+def _candidate_paths(basename: str) -> List[str]:
+    # likely repo and cloud locations
+    names = [f"{basename}.csv", basename]
+    roots = [
+        ".", "data", "datasets", "/mnt/data", "/mount/src/uber_v2"
+    ]
+    paths = [os.path.join(r, n) for r in roots for n in names]
+    return paths
+
+def _shallow_search(basename: str, max_depth: int = 2) -> Optional[str]:
+    target = f"{basename}.csv"
+    cwd = os.getcwd()
+    for root, dirs, files in os.walk(cwd):
+        # limit depth
+        depth = os.path.relpath(root, cwd).count(os.sep)
+        if depth > max_depth:
+            dirs[:] = []  # do not descend further
+            continue
+        if target in files:
+            return os.path.join(root, target)
+    return None
+
 @st.cache_data(show_spinner=False)
 def load_csv_hardcoded() -> pd.DataFrame:
-    if not os.path.exists(DATA_FILE):
-        raise FileNotFoundError(f"Expected CSV at: {DATA_FILE}")
-    # engine=None lets pandas auto-detect; avoids C parser choking on quotes
-    df = pd.read_csv(DATA_FILE)
-    missing = [c for c in SCHEMA if c not in df.columns]
-    if missing:
-        raise ValueError(f"Missing required columns: {missing}")
-    return df
+    tried = []
+    for p in _candidate_paths(DATA_BASENAME):
+        tried.append(p)
+        if os.path.exists(p):
+            df = pd.read_csv(p)
+            missing = [c for c in SCHEMA if c not in df.columns]
+            if missing:
+                raise ValueError(f"Missing required columns: {missing}")
+            st.sidebar.success(f"Loaded: {p}")
+            return df
+    # shallow search as fallback
+    alt = _shallow_search(DATA_BASENAME)
+    if alt and os.path.exists(alt):
+        df = pd.read_csv(alt)
+        missing = [c for c in SCHEMA if c not in df.columns]
+        if missing:
+            raise ValueError(f"Missing required columns: {missing}")
+        st.sidebar.success(f"Loaded: {alt}")
+        return df
+    raise FileNotFoundError(
+        "Could not find dataset. Looked for:\n" + "\n".join(f"• {p}" for p in tried) +
+        "\nAlso scanned repo (shallow) for ncr_ride_bookingsv350k.csv."
+    )
 
 @st.cache_data(show_spinner=False)
 def preprocess(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     msgs: List[str] = []
     df = df.copy()
 
-    # Parse Date & Time -> timestamp
+    # Parse Date & Time -> timestamp (day-first)
     df["parsed_date"] = pd.to_datetime(df["Date"], dayfirst=True, errors="coerce")
     t_parsed = pd.to_datetime(df["Time"], format="%H:%M:%S", errors="coerce")
     df["parsed_time"] = t_parsed.dt.time
@@ -166,7 +203,6 @@ def preprocess(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
               "Drop Location", "Payment Method", "time_bucket"]:
         df[c] = df[c].astype("category")
 
-    # Sort by time
     df = df.sort_values("timestamp").reset_index(drop=True)
     return df, msgs
 
@@ -286,7 +322,7 @@ def pca_numpy(X: np.ndarray, n_components: int = 2) -> np.ndarray:
 try:
     df_raw = load_csv_hardcoded()
 except Exception as e:
-    st.error(f"Failed to load CSV from {DATA_FILE}. {e}")
+    st.error(f"Failed to load dataset for basename '{DATA_BASENAME}'. {e}")
     st.stop()
 
 df, load_msgs = preprocess(df_raw)
@@ -297,7 +333,7 @@ for m in load_msgs:
 # Sidebar Filters (global)
 # ==============================
 st.sidebar.title("🚖 Uber NCR 2024 — Analytics (Lean)")
-st.sidebar.caption(f"Data: `{DATA_FILE}`")
+st.sidebar.caption(f"Dataset basename: '{DATA_BASENAME}'")
 
 min_d, max_d = df["timestamp"].dt.date.min(), df["timestamp"].dt.date.max()
 drange = st.sidebar.date_input("Date range", (min_d, max_d), min_value=min_d, max_value=max_d)
@@ -546,7 +582,6 @@ with tabs[4]:
 
     st.markdown("---")
     df_scatter = df_f[rev_mask][["ride_distance", "booking_value", "Vehicle Type"]].dropna()
-    # Manual trendline to avoid auto formula overhead
     fig = px.scatter(df_scatter, x="ride_distance", y="booking_value", color="Vehicle Type",
                      title="Booking Value vs Ride Distance")
     try:
@@ -579,7 +614,12 @@ with tabs[5]:
     low_thr = st.slider("Low rating threshold", 1.0, 5.0, 3.5, 0.1)
     seg = (df_f.assign(low_rate=(df_f["customer_rating"] > 0) & (df_f["customer_rating"] < low_thr))
            .groupby(["Vehicle Type", "time_bucket"], observed=False)["low_rate"].mean().reset_index()
-           .sort_values("low_rate", ascending=False).head(20))
+           .sort_values("low_rate", descending=True if hasattr(pd.Series, "sort_values") else False).head(20))
+    # Compatibility if pandas version doesn't accept 'descending' kw:
+    try:
+        pass
+    except Exception:
+        seg = seg.sort_values("low_rate", ascending=False).head(20)
     st.plotly_chart(px.bar(seg, x="low_rate", y="Vehicle Type", color="time_bucket", orientation="h",
                            title=f"Probability of < {low_thr:.1f} Stars by Segment"), use_container_width=True)
 
@@ -756,11 +796,13 @@ with tabs[7]:
     # D) Regression — OLS
     st.markdown("---")
     st.markdown("### D) Regression — Predict Booking Value (OLS)")
-    df_reg = df_f[cat_cols + num_cols + ["booking_value"]].copy()
+    cat_cols_r = ["Vehicle Type", "Pickup Location", "Drop Location", "Payment Method", "time_bucket"]
+    num_cols_r = ["hour", "weekday", "month", "is_weekend", "avg_vtat", "ride_distance"]
+    df_reg = df_f[cat_cols_r + num_cols_r + ["booking_value"]].copy()
     if len(df_reg) < 50 or df_reg["booking_value"].dropna().empty:
         st.info("Not enough data for regression after filters.")
     else:
-        Xr_all, r_cols = one_hot_fit_transform(df_reg, cat_cols, num_cols)
+        Xr_all, r_cols = one_hot_fit_transform(df_reg, cat_cols_r, num_cols_r)
         yr_all = df_reg["booking_value"].fillna(0).astype(np.float64).values
 
         n = len(Xr_all)
@@ -907,4 +949,4 @@ with tabs[10]:
     """.strip()
     st.download_button("Download HTML Summary", html.encode("utf-8"), "summary.html", "text/html")
 
-st.caption("© 2025 — Lean single-file app: strict float64 matrices; Py3.13-safe deps; hard-coded CSV path for reliability.")
+st.caption("© 2025 — Lean single-file app: strict float64 matrices; Py3.13-safe deps; hard-coded dataset basename for reliability.")
