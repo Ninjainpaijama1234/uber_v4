@@ -471,11 +471,11 @@ with tabs[1]:
     st.markdown("---")
     st.markdown("### Cancellation Rate by Vehicle / Time Bucket / Pickup")
     by_vehicle = (df_f.assign(is_cancel=(df_f["will_complete"] == 0))
-                  .groupby("Vehicle Type", observed=False)["is_cancel"].mean().sort_values(ascending=False))
+                    .groupby("Vehicle Type", observed=False)["is_cancel"].mean().sort_values(ascending=False))
     by_bucket = (df_f.assign(is_cancel=(df_f["will_complete"] == 0))
-                 .groupby("time_bucket", observed=False)["is_cancel"].mean().sort_values(ascending=False))
+                   .groupby("time_bucket", observed=False)["is_cancel"].mean().sort_values(ascending=False))
     by_pickup = (df_f.assign(is_cancel=(df_f["will_complete"] == 0))
-                 .groupby("Pickup Location", observed=False)["is_cancel"].mean().sort_values(ascending=False).head(20))
+                   .groupby("Pickup Location", observed=False)["is_cancel"].mean().sort_values(ascending=False).head(20))
 
     bar_from_series(by_vehicle, "Cancellation Rate by Vehicle Type", "Vehicle Type", "Rate")
     bar_from_series(by_bucket, "Cancellation Rate by Time Bucket", "Time Bucket", "Rate")
@@ -494,11 +494,11 @@ with tabs[2]:
     with c1:
         st.dataframe(top_pick, use_container_width=True)
         st.plotly_chart(px.bar(top_pick, x="Pickup Location", y="count", title="Top Pickups",
-                               color_discrete_sequence=[COLORS["demand"]]), use_container_width=True)
+                                color_discrete_sequence=[COLORS["demand"]]), use_container_width=True)
     with c2:
         st.dataframe(top_drop, use_container_width=True)
         st.plotly_chart(px.bar(top_drop, x="Drop Location", y="count", title="Top Drops",
-                               color_discrete_sequence=[COLORS["demand"]]), use_container_width=True)
+                                color_discrete_sequence=[COLORS["demand"]]), use_container_width=True)
 
     st.markdown("---")
     st.markdown("### Peak Patterns")
@@ -507,23 +507,23 @@ with tabs[2]:
     c3, c4 = st.columns(2)
     with c3:
         st.plotly_chart(px.bar(hh, title="By Hour of Day", labels={"index": "Hour", "value": "Trips"},
-                               color_discrete_sequence=[COLORS["demand"]]), use_container_width=True)
+                                color_discrete_sequence=[COLORS["demand"]]), use_container_width=True)
     with c4:
         dow_map = {0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"}
         st.plotly_chart(px.bar(dow.rename(index=dow_map), title="By Day of Week", labels={"index": "Day", "value": "Trips"},
-                               color_discrete_sequence=[COLORS["demand"]]), use_container_width=True)
+                                color_discrete_sequence=[COLORS["demand"]]), use_container_width=True)
 
     st.markdown("---")
     st.markdown("### Category Heat Tables")
     heat_pick_hr = (df_f.assign(cnt=1).pivot_table(index="Pickup Location", columns="hour", values="cnt", aggfunc="sum", fill_value=0))
     heat_pick_hr = heat_pick_hr.loc[heat_pick_hr.sum(axis=1).sort_values(ascending=False).head(20).index]
     st.plotly_chart(px.imshow(heat_pick_hr, aspect="auto", color_continuous_scale="Blues",
-                              title="Pickup × Hour Heat (Top 20 Pickups)"), use_container_width=True)
+                               title="Pickup × Hour Heat (Top 20 Pickups)"), use_container_width=True)
     heat_pick_dow = (df_f.assign(cnt=1).pivot_table(index="Pickup Location", columns="weekday", values="cnt", aggfunc="sum", fill_value=0))
     heat_pick_dow = heat_pick_dow.loc[heat_pick_dow.sum(axis=1).sort_values(ascending=False).head(20).index]
     heat_pick_dow.columns = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     st.plotly_chart(px.imshow(heat_pick_dow, aspect="auto", color_continuous_scale="Blues",
-                              title="Pickup × Day-of-Week Heat (Top 20 Pickups)"), use_container_width=True)
+                               title="Pickup × Day-of-Week Heat (Top 20 Pickups)"), use_container_width=True)
 
 # ---------- Tab 4
 with tabs[3]:
@@ -531,10 +531,10 @@ with tabs[3]:
     c1, c2 = st.columns(2)
     with c1:
         st.plotly_chart(px.histogram(df_f, x="avg_vtat", nbins=40, title="Avg VTAT",
-                                     color_discrete_sequence=[COLORS["risk"]]), use_container_width=True)
+                                      color_discrete_sequence=[COLORS["risk"]]), use_container_width=True)
     with c2:
         st.plotly_chart(px.histogram(df_f, x="avg_ctat", nbins=40, title="Avg CTAT",
-                                     color_discrete_sequence=[COLORS["risk"]]), use_container_width=True)
+                                      color_discrete_sequence=[COLORS["risk"]]), use_container_width=True)
 
     st.markdown("---")
     st.markdown("### By Location & Vehicle (Top 30 by volume)")
@@ -601,10 +601,10 @@ with tabs[5]:
     c1, c2 = st.columns(2)
     with c1:
         st.plotly_chart(px.histogram(df_f, x="driver_ratings", nbins=20, title="Driver Ratings",
-                                     color_discrete_sequence=[COLORS["cx"]]), use_container_width=True)
+                                      color_discrete_sequence=[COLORS["cx"]]), use_container_width=True)
     with c2:
         st.plotly_chart(px.histogram(df_f, x="customer_rating", nbins=20, title="Customer Ratings",
-                                     color_discrete_sequence=[COLORS["cx"]]), use_container_width=True)
+                                      color_discrete_sequence=[COLORS["cx"]]), use_container_width=True)
 
     st.markdown("---")
     st.markdown("### Correlations & Low-Rating Risk")
@@ -614,12 +614,7 @@ with tabs[5]:
     low_thr = st.slider("Low rating threshold", 1.0, 5.0, 3.5, 0.1)
     seg = (df_f.assign(low_rate=(df_f["customer_rating"] > 0) & (df_f["customer_rating"] < low_thr))
            .groupby(["Vehicle Type", "time_bucket"], observed=False)["low_rate"].mean().reset_index()
-           .sort_values("low_rate", descending=True if hasattr(pd.Series, "sort_values") else False).head(20))
-    # Compatibility if pandas version doesn't accept 'descending' kw:
-    try:
-        pass
-    except Exception:
-        seg = seg.sort_values("low_rate", ascending=False).head(20)
+           .sort_values("low_rate", ascending=False).head(20))
     st.plotly_chart(px.bar(seg, x="low_rate", y="Vehicle Type", color="time_bucket", orientation="h",
                            title=f"Probability of < {low_thr:.1f} Stars by Segment"), use_container_width=True)
 
@@ -860,8 +855,8 @@ with tabs[8]:
     is_anom = (scores >= thresh).astype(int)
 
     risk_df = df_f[["Booking ID", "timestamp", "Vehicle Type", "Pickup Location",
-                    "Drop Location", "Payment Method", "booking_value", "ride_distance",
-                    "booking_status_canon"]].copy()
+                       "Drop Location", "Payment Method", "booking_value", "ride_distance",
+                       "booking_status_canon"]].copy()
     risk_df["risk_score"] = scores
     risk_df["is_anomaly"] = is_anom
 
